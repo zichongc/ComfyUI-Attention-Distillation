@@ -216,7 +216,7 @@ class AttentionDistillation(StableDiffusionPipeline):
             assert handler.batch_size == len(contents)
             content_latents = self.image2latents(contents)
         
-        generator = torch.Generator(accelerator.device).manual_seed(seed) if seed is not None else None
+        generator = torch.Generator().manual_seed(seed) if seed is not None else None
         if handler.init_type == 'content' and content_latents is not None:
             latents = content_latents.clone().detach().float()
         else:
