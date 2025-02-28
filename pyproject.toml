@@ -1,0 +1,15 @@
+[project]
+name = "attention-distillation"
+description = "Non-native [a/AttentionDistillation](https://github.com/xugao97/AttentionDistillation) for ComfyUI.\nOfficial ComfyUI demo for the paper AttentionDistillation, implemented as an extension of ComfyUI. Note that this extension incorporates AttentionDistillation using diffusers."
+version = "1.0.0"
+license = {file = "LICENSE"}
+dependencies = ["diffusers", "accelerate", "Pillow", "torch>=2.1.0"]
+
+[project.urls]
+Repository = "https://github.com/zichongc/ComfyUI-Attention-Distillation"
+#  Used by Comfy Registry https://comfyregistry.org
+
+[tool.comfy]
+PublisherId = ""
+DisplayName = "ComfyUI-Attention-Distillation"
+Icon = ""
