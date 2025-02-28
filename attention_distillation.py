@@ -6,7 +6,7 @@ from tqdm import tqdm
 from dataclasses import asdict
 from typing import Union, Literal, List, Optional, Dict
 from torchvision import transforms
-from torchvision.transforms.functional import to_pil_image
+from torchvision.transforms.functional import to_pil_image, resize
 from diffusers import StableDiffusionPipeline
 from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import retrieve_timesteps
 
@@ -137,18 +137,27 @@ class AttentionDistillation(StableDiffusionPipeline):
         self.text_encoder.requires_grad_(False)
         
     @torch.no_grad()
-    def image2latents(self, image: Union[Image.Image, List[Image.Image]]):
-        transform = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize(mean=.5, std=.5)
-        ])
+    def image2latents(self, image: Union[Image.Image, List[Image.Image], torch.Tensor]):
+        totensor = transforms.ToTensor()
+        normalize = transforms.Normalize(mean=.5, std=.5)
         
+        if isinstance(image, torch.Tensor):
+            image = image.to(device=self._execution_device, dtype=self.vae.dtype)
+            latents = []
+            for img in image:
+                latent = self.vae.encode(normalize(img.unsqueeze(0)))['latent_dist'].mean
+                latent = latent * self.vae.config.scaling_factor
+                latents.append(latent)
+                    
+            latents = torch.cat(latents, dim=0)
+            return latents
+
         if isinstance(image, Image.Image):
             image = [image]
         
         latents = []
         for img in image:
-            img = transform(img).unsqueeze(0).to(device=self._execution_device, dtype=self.vae.dtype)
+            img = normalize(totensor(img)).unsqueeze(0).to(device=self._execution_device, dtype=self.vae.dtype)
             latent = self.vae.encode(img)['latent_dist'].mean
             latent = latent * self.vae.config.scaling_factor
             latents.append(latent)
@@ -187,8 +196,8 @@ class AttentionDistillation(StableDiffusionPipeline):
     
     def optimize(
         self, 
-        style_image: Image.Image, 
-        contents: Union[Image.Image, List[Image.Image]], 
+        style_image: Union[torch.Tensor, Image.Image], 
+        contents: Union[torch.Tensor, Image.Image, List[Image.Image]], 
         handler: SimpleHandler, 
         image_return_type: Literal['pil', 'pt']='pil',
         seed: int = None,
@@ -208,12 +217,23 @@ class AttentionDistillation(StableDiffusionPipeline):
 
         height, width = handler.height // self.vae_scale_factor, handler.width // self.vae_scale_factor
         
-        style_latents = self.image2latents(style_image.resize((handler.height, handler.width)))
+        if isinstance(style_image, torch.Tensor):
+            style_image = resize(style_image.permute(0, 3, 1, 2), (handler.height, handler.width))
+            
+        elif isinstance(style_image, Image.Image):
+            style_image.resize((handler.height, handler.width))
+        else:
+            raise ValueError
+
+        style_latents = self.image2latents(style_image)
         content_latents = None
         if contents is not None:
             if isinstance(contents, Image.Image):
                 contents = [contents]
             assert handler.batch_size == len(contents)
+
+            if isinstance(contents, torch.Tensor) and contents.shape[1] != 3:
+                contents = contents.permute(0, 3, 1, 2)
             content_latents = self.image2latents(contents)
         
         generator = torch.Generator().manual_seed(seed) if seed is not None else None
