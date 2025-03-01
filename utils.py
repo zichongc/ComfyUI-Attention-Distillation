@@ -1,109 +1,133 @@
+import numpy as np
 import torch
+import torch.nn.functional as F
 from PIL import Image
-from typing import Union, List
-from dataclasses import dataclass
+from torchvision.transforms import ToTensor
+from torchvision.utils import save_image
+# import matplotlib.pyplot as plt
+import math
 
 
-sd_self_attn_indexes = {
-    'down_blocks.0.attentions.0.transformer_blocks.0.attn1': 0,
-    'down_blocks.0.attentions.1.transformer_blocks.0.attn1': 1,
-    'down_blocks.1.attentions.0.transformer_blocks.0.attn1': 2,
-    'down_blocks.1.attentions.1.transformer_blocks.0.attn1': 3,
-    'down_blocks.2.attentions.0.transformer_blocks.0.attn1': 4,
-    'down_blocks.2.attentions.1.transformer_blocks.0.attn1': 5,
-    'mid_block.attentions.0.transformer_blocks.0.attn1': 6,
-    'up_blocks.1.attentions.0.transformer_blocks.0.attn1': 7 ,
-    'up_blocks.1.attentions.1.transformer_blocks.0.attn1': 8,
-    'up_blocks.1.attentions.2.transformer_blocks.0.attn1': 9,
-    'up_blocks.2.attentions.0.transformer_blocks.0.attn1': 10,
-    'up_blocks.2.attentions.1.transformer_blocks.0.attn1': 11,
-    'up_blocks.2.attentions.2.transformer_blocks.0.attn1': 12,
-    'up_blocks.3.attentions.0.transformer_blocks.0.attn1': 13,
-    'up_blocks.3.attentions.1.transformer_blocks.0.attn1': 14,
-    'up_blocks.3.attentions.2.transformer_blocks.0.attn1': 15,
-}
+def register_attn_control(unet, controller, cache=None):
+    def attn_forward(self):
+        def forward(
+            hidden_states,
+            encoder_hidden_states=None,
+            attention_mask=None,
+            temb=None,
+            *args,
+            **kwargs,
+        ):
+            residual = hidden_states
+            if self.spatial_norm is not None:
+                hidden_states = self.spatial_norm(hidden_states, temb)
 
-sdxl_self_attn_indexes = {
-    'down_blocks.1.attentions.0.transformer_blocks.0.attn1': 0,
-    'down_blocks.1.attentions.0.transformer_blocks.1.attn1': 1,
-    'down_blocks.1.attentions.1.transformer_blocks.0.attn1': 2,
-    'down_blocks.1.attentions.1.transformer_blocks.1.attn1': 3,
-    'down_blocks.2.attentions.0.transformer_blocks.0.attn1': 4,
-    'down_blocks.2.attentions.0.transformer_blocks.1.attn1': 5,
-    'down_blocks.2.attentions.0.transformer_blocks.2.attn1': 6,
-    'down_blocks.2.attentions.0.transformer_blocks.3.attn1': 7,
-    'down_blocks.2.attentions.0.transformer_blocks.4.attn1': 8,
-    'down_blocks.2.attentions.0.transformer_blocks.5.attn1': 9,
-    'down_blocks.2.attentions.0.transformer_blocks.6.attn1': 10,
-    'down_blocks.2.attentions.0.transformer_blocks.7.attn1': 11,
-    'down_blocks.2.attentions.0.transformer_blocks.8.attn1': 12,
-    'down_blocks.2.attentions.0.transformer_blocks.9.attn1': 13,
-    'down_blocks.2.attentions.1.transformer_blocks.0.attn1': 14,
-    'down_blocks.2.attentions.1.transformer_blocks.1.attn1': 15,
-    'down_blocks.2.attentions.1.transformer_blocks.2.attn1': 16,
-    'down_blocks.2.attentions.1.transformer_blocks.3.attn1': 17,
-    'down_blocks.2.attentions.1.transformer_blocks.4.attn1': 18,
-    'down_blocks.2.attentions.1.transformer_blocks.5.attn1': 19,
-    'down_blocks.2.attentions.1.transformer_blocks.6.attn1': 20,
-    'down_blocks.2.attentions.1.transformer_blocks.7.attn1': 21,
-    'down_blocks.2.attentions.1.transformer_blocks.8.attn1': 22,
-    'down_blocks.2.attentions.1.transformer_blocks.9.attn1': 23,
-    'mid_block.attentions.0.transformer_blocks.0.attn1': 24,
-    'mid_block.attentions.0.transformer_blocks.1.attn1': 25,
-    'mid_block.attentions.0.transformer_blocks.2.attn1': 26,
-    'mid_block.attentions.0.transformer_blocks.3.attn1': 27,
-    'mid_block.attentions.0.transformer_blocks.4.attn1': 28,
-    'mid_block.attentions.0.transformer_blocks.5.attn1': 29,
-    'mid_block.attentions.0.transformer_blocks.6.attn1': 30,
-    'mid_block.attentions.0.transformer_blocks.7.attn1': 31,
-    'mid_block.attentions.0.transformer_blocks.8.attn1': 32,
-    'mid_block.attentions.0.transformer_blocks.9.attn1': 33,
-    'up_blocks.0.attentions.0.transformer_blocks.0.attn1': 34,
-    'up_blocks.0.attentions.0.transformer_blocks.1.attn1': 35,
-    'up_blocks.0.attentions.0.transformer_blocks.2.attn1': 36,
-    'up_blocks.0.attentions.0.transformer_blocks.3.attn1': 37,
-    'up_blocks.0.attentions.0.transformer_blocks.4.attn1': 38,
-    'up_blocks.0.attentions.0.transformer_blocks.5.attn1': 39,
-    'up_blocks.0.attentions.0.transformer_blocks.6.attn1': 40,
-    'up_blocks.0.attentions.0.transformer_blocks.7.attn1': 41,
-    'up_blocks.0.attentions.0.transformer_blocks.8.attn1': 42,
-    'up_blocks.0.attentions.0.transformer_blocks.9.attn1': 43,
-    'up_blocks.0.attentions.1.transformer_blocks.0.attn1': 44,
-    'up_blocks.0.attentions.1.transformer_blocks.1.attn1': 45,
-    'up_blocks.0.attentions.1.transformer_blocks.2.attn1': 46,
-    'up_blocks.0.attentions.1.transformer_blocks.3.attn1': 47,
-    'up_blocks.0.attentions.1.transformer_blocks.4.attn1': 48,
-    'up_blocks.0.attentions.1.transformer_blocks.5.attn1': 49,
-    'up_blocks.0.attentions.1.transformer_blocks.6.attn1': 50,
-    'up_blocks.0.attentions.1.transformer_blocks.7.attn1': 51,
-    'up_blocks.0.attentions.1.transformer_blocks.8.attn1': 52,
-    'up_blocks.0.attentions.1.transformer_blocks.9.attn1': 53,
-    'up_blocks.0.attentions.2.transformer_blocks.0.attn1': 54,
-    'up_blocks.0.attentions.2.transformer_blocks.1.attn1': 55,
-    'up_blocks.0.attentions.2.transformer_blocks.2.attn1': 56,
-    'up_blocks.0.attentions.2.transformer_blocks.3.attn1': 57,
-    'up_blocks.0.attentions.2.transformer_blocks.4.attn1': 58,
-    'up_blocks.0.attentions.2.transformer_blocks.5.attn1': 59,
-    'up_blocks.0.attentions.2.transformer_blocks.6.attn1': 60,
-    'up_blocks.0.attentions.2.transformer_blocks.7.attn1': 61,
-    'up_blocks.0.attentions.2.transformer_blocks.8.attn1': 62,
-    'up_blocks.0.attentions.2.transformer_blocks.9.attn1': 63,
-    'up_blocks.1.attentions.0.transformer_blocks.0.attn1': 64,
-    'up_blocks.1.attentions.0.transformer_blocks.1.attn1': 65,
-    'up_blocks.1.attentions.1.transformer_blocks.0.attn1': 66,
-    'up_blocks.1.attentions.1.transformer_blocks.1.attn1': 67,
-    'up_blocks.1.attentions.2.transformer_blocks.0.attn1': 68,
-    'up_blocks.1.attentions.2.transformer_blocks.1.attn1': 69,
-}
+            input_ndim = hidden_states.ndim
+
+            if input_ndim == 4:
+                batch_size, channel, height, width = hidden_states.shape
+                hidden_states = hidden_states.view(
+                    batch_size, channel, height * width
+                ).transpose(1, 2)
+
+            batch_size, sequence_length, _ = (
+                hidden_states.shape
+                if encoder_hidden_states is None
+                else encoder_hidden_states.shape
+            )
+
+            if attention_mask is not None:
+                attention_mask = self.prepare_attention_mask(
+                    attention_mask, sequence_length, batch_size
+                )
+                # scaled_dot_product_attention expects attention_mask shape to be
+                # (batch, heads, source_length, target_length)
+                attention_mask = attention_mask.view(
+                    batch_size, self.heads, -1, attention_mask.shape[-1]
+                )
+
+            if self.group_norm is not None:
+                hidden_states = self.group_norm(
+                    hidden_states.transpose(1, 2)
+                ).transpose(1, 2)
+
+            q = self.to_q(hidden_states)
+            is_self = encoder_hidden_states is None
+
+            if encoder_hidden_states is None:
+                encoder_hidden_states = hidden_states
+            elif self.norm_cross:
+                encoder_hidden_states = self.norm_encoder_hidden_states(
+                    encoder_hidden_states
+                )
+
+            k = self.to_k(encoder_hidden_states)
+            v = self.to_v(encoder_hidden_states)
+
+            inner_dim = k.shape[-1]
+            head_dim = inner_dim // self.heads
+
+            q = q.view(batch_size, -1, self.heads, head_dim).transpose(1, 2)
+            k = k.view(batch_size, -1, self.heads, head_dim).transpose(1, 2)
+            v = v.view(batch_size, -1, self.heads, head_dim).transpose(1, 2)
+            # the output of sdp = (batch, num_heads, seq_len, head_dim)
+            # TODO: add support for attn.scale when we move to Torch 2.1
+            hidden_states = F.scaled_dot_product_attention(
+                q, k, v, attn_mask=attention_mask, dropout_p=0.0, is_causal=False
+            )
+            if is_self and controller.cur_self_layer in controller.self_layers:
+                cache.add(q, k, v, hidden_states)
+
+            hidden_states = hidden_states.transpose(1, 2).reshape(
+                batch_size, -1, self.heads * head_dim
+            )
+            hidden_states = hidden_states.to(q.dtype)
+
+            # linear proj
+            hidden_states = self.to_out[0](hidden_states)
+            # dropout
+            hidden_states = self.to_out[1](hidden_states)
+
+            if input_ndim == 4:
+                hidden_states = hidden_states.transpose(-1, -2).reshape(
+                    batch_size, channel, height, width
+                )
+            if self.residual_connection:
+                hidden_states = hidden_states + residual
+
+            hidden_states = hidden_states / self.rescale_output_factor
+
+            if is_self:
+                controller.cur_self_layer += 1
+
+            return hidden_states
+
+        return forward
+
+    def modify_forward(net, count):
+        for name, subnet in net.named_children():
+            if net.__class__.__name__ == "Attention":  # spatial Transformer layer
+                net.forward = attn_forward(net)
+                return count + 1
+            elif hasattr(net, "children"):
+                count = modify_forward(subnet, count)
+        return count
+
+    cross_att_count = 0
+    for net_name, net in unet.named_children():
+        cross_att_count += modify_forward(net, 0)
+    controller.num_self_layers = cross_att_count // 2
 
 
-def export_results(latents, vae, output_dir, name='demo.png'):
-    latents = 1 / vae.config.scaling_factor * latents.detach()
-    image = vae.decode(latents.to(vae.dtype))['sample']
-    image = (image / 2 + .5).clamp(0, 1)
-    from torchvision.utils import save_image
-    import os
-    save_image(image, os.path.join(output_dir, name))
+def load_image(image_path, size=None, mode="RGB"):
+    img = Image.open(image_path).convert(mode)
+    if size is None:
+        width, height = img.size
+        new_width = (width // 64) * 64
+        new_height = (height // 64) * 64
+        size = (new_width, new_height)
+    img = img.resize(size, Image.BICUBIC)
+    return ToTensor()(img).unsqueeze(0)
 
 
 def adain(source, target, eps=1e-6):
@@ -119,18 +143,53 @@ def adain(source, target, eps=1e-6):
     return transferred_source
 
 
-@dataclass
-class LatentsOutput:
-    latents: dict
-    
-    
-@dataclass
-class ADOptimizationOutput:
-    latents: torch.Tensor
-    images: Union[torch.Tensor, List[Image.Image]]
+class Controller:
+    def step(self):
+        self.cur_self_layer = 0
+
+    def __init__(self, self_layers=(0, 16)):
+        self.num_self_layers = -1
+        self.cur_self_layer = 0
+        self.self_layers = list(range(*self_layers))
 
 
-@dataclass
-class ADSamplingOutput:
-    latents: torch.Tensor
-    images: Union[torch.Tensor, List[Image.Image]]
+class DataCache:
+    def __init__(self):
+        self.q = []
+        self.k = []
+        self.v = []
+        self.out = []
+
+    def clear(self):
+        self.q.clear()
+        self.k.clear()
+        self.v.clear()
+        self.out.clear()
+
+    def add(self, q, k, v, out):
+        self.q.append(q)
+        self.k.append(k)
+        self.v.append(v)
+        self.out.append(out)
+
+    def get(self):
+        return self.q.copy(), self.k.copy(), self.v.copy(), self.out.copy()
+    
+
+
+# def show_image(path, title, display_height=3, title_fontsize=12):
+#     img = Image.open(path)
+#     img_width, img_height = img.size
+
+#     aspect_ratio = img_width / img_height
+#     display_width = display_height * aspect_ratio
+
+#     plt.figure(figsize=(display_width, display_height))
+#     plt.imshow(img)
+#     plt.title(title, 
+#              fontsize=title_fontsize, 
+#              fontweight='bold', 
+#              pad=20) 
+#     plt.axis('off')    
+#     plt.tight_layout() 
+#     plt.show()
