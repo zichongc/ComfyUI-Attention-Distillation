@@ -7,6 +7,8 @@ from comfy.comfy_types import IO
 import comfy.model_management as mm
 import node_helpers
 import folder_paths
+from huggingface_hub import hf_hub_download
+from tqdm import tqdm
 
 from torchvision.transforms.functional import resize, to_tensor
 from accelerate.utils import set_seed
@@ -101,10 +103,45 @@ class LoadDistiller:
         if not os.path.exists(model_name):
             print(f"Please download target model to : {model_name}")
         
-        scheduler = DDIMScheduler.from_pretrained(model_name, subfolder='scheduler')
-        distiller = ADPipeline.from_pretrained(
-            model_name, scheduler=scheduler, safety_checker=None, torch_dtype=weight_dtype
-        ).to(device)
+        try:
+            scheduler = DDIMScheduler.from_pretrained(model_name, subfolder='scheduler')
+            distiller = ADPipeline.from_pretrained(
+                model_name, scheduler=scheduler, safety_checker=None, torch_dtype=weight_dtype
+            ).to(device)
+        except:
+            print('Download models...')
+                
+            repo_name = {
+                "stable-diffusion-v1-5": "stable-diffusion-v1-5/stable-diffusion-v1-5",
+            }[model]
+
+            file_names = [
+                'feature_extractor/preprocessor_config.json', 
+                'scheduler/scheduler_config.json', 
+                'text_encoder/config.json', 
+                'text_encoder/pytorch_model.bin',
+                'tokenizer/merges.txt', 
+                'tokenizer/special_tokens_map.json', 
+                'tokenizer/tokenizer_config.json', 
+                'tokenizer/vocab.json', 
+                'unet/config.json', 
+                'unet/diffusion_pytorch_model.bin', 
+                'vae/config.json', 
+                'vae/diffusion_pytorch_model.bin', 
+                'model_index.json'
+            ]
+            pbar = tqdm(file_names)
+            for file_name in pbar:
+                pbar.set_description(f'Downloading {file_name}')
+                if not os.path.exists(os.path.join(model_name, file_name)):
+                    hf_hub_download(repo_id=repo_name, filename=file_name, local_dir=model_name)
+                pbar.update()
+
+            scheduler = DDIMScheduler.from_pretrained(model_name, subfolder='scheduler')
+            distiller = ADPipeline.from_pretrained(
+                model_name, scheduler=scheduler, safety_checker=None, torch_dtype=weight_dtype
+            ).to(device)
+
         distiller.classifier = distiller.unet
 
         return ({"distiller": distiller, "precision": precision, 'weight_dtype': weight_dtype},)

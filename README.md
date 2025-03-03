@@ -1,10 +1,10 @@
 ## ComfyUI-Attention-Distillation
 
-Non-native [AttentionDistillation](https://github.com/xugao97/AttentionDistillation) for ComfyUI.
+Non-native [AttentionDistillation](https://xugao97.github.io/AttentionDistillation/) for ComfyUI.
 
-Official ComfyUI demo for the paper [AttentionDistillation](), implemented as an extension of ComfyUI. Note that this extension incorporates AttentionDistillation using `diffusers`.
+Official ComfyUI demo for the paper [AttentionDistillation](https://arxiv.org/abs/2502.20235), implemented as an extension of ComfyUI. Note that this extension incorporates AttentionDistillation using `diffusers`.
 
-The official code for AttentionDistillation can be found [here]().
+The official code for AttentionDistillation can be found [here](https://github.com/xugao97/AttentionDistillation).
 
 ### 🔥🔥  News
 * **2025/02/27**: We release the ComfyUI implementation of Attention Distillation and two workflows for style transfer and style-specific text-to-image generation using Stable Diffusion 1.5.
