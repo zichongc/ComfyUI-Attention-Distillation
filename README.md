@@ -7,6 +7,7 @@ Official ComfyUI demo for the paper [AttentionDistillation](https://arxiv.org/ab
 The official code for AttentionDistillation can be found [here](https://github.com/xugao97/AttentionDistillation).
 
 ### 🔥🔥  News
+* **2025/03/10**: Workflows for style-specific T2I generation using **SDXL** and **Flux**(beta) have been released.
 * **2025/02/27**: We release the ComfyUI implementation of Attention Distillation and two workflows for style transfer and style-specific text-to-image generation using Stable Diffusion 1.5.
 * **2025/02/27**: The official code for AttentionDistillation has been released [here](https://github.com/xugao97/AttentionDistillation).
 
@@ -28,8 +29,10 @@ This implementation utilizes checkpoints for `diffusers`. Download the required 
 |:---:|:---:|
 | Stable Diffusion (v1.5, v2.1) | [stable-diffusion-v1-5/stable-diffusion-v1-5](https://huggingface.co/stable-diffusion-v1-5/stable-diffusion-v1-5) <br> [stabilityai/stable-diffusion-2-1](https://huggingface.co/stabilityai/stable-diffusion-2-1) |
 | SDXL | [stabilityai/stable-diffusion-xl-base-1.0](https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0) |
+| Flux (dev) | [black-forest-labs/FLUX.1-dev](https://huggingface.co/black-forest-labs/FLUX.1-dev) |
 
-*Note: Currently, only Stable Diffusion v1.5 is required.*
+
+~~*Note: Currently, only Stable Diffusion v1.5 is required.*~~
 
 ##### Load the workflow
 Workflows for various tasks are available in `ComfyUI/custom_nodes/Comfy-Attention-Distillation/workflows`. Simply load them to get started. Additionally, we've included usage examples in the [Examples](#examples) section for your reference.
@@ -41,6 +44,16 @@ Workflows for various tasks are available in `ComfyUI/custom_nodes/Comfy-Attenti
 
 <img src="./assets/style_t2i.jpg" style="zoom: 100%;" />
 
+
+`style_t2i_generation_sdxl.json`
+
+<img src="./assets/style_t2i_sdxl.jpg" style="zoom: 100%;" />
+
+
+`style_t2i_generation_flux.json` (beta)
+
+<!-- <img src="./assets/style_t2i.jpg" style="zoom: 100%;" /> -->
+
 #### Style Transfer
 `style_transfer_sd15.json`
 
@@ -48,7 +61,8 @@ Workflows for various tasks are available in `ComfyUI/custom_nodes/Comfy-Attenti
 
 
 ### 📃 TODOs
-- [ ] Workflow for style-specific text-to-image generation using SDXL.
+- [x] Workflow for style-specific text-to-image generation using SDXL.
+- [x] Workflow for style-specific text-to-image generation using Flux.
 - [ ] Workflow for texture synthesis.
 
 

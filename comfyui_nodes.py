@@ -14,7 +14,9 @@ from torchvision.transforms.functional import resize, to_tensor
 from accelerate.utils import set_seed
 from .pipeline_sd import ADPipeline
 from .pipeline_sdxl import ADPipeline as ADXLPipeline
+from .pipeline_flux import ADPipeline as ADFluxPipeline
 from .utils import Controller
+from .utils import sd15_file_names, sdxl_file_names, flux_file_names
 
 
 class PureText:
@@ -72,9 +74,12 @@ class ResizeImage:
         }
 
     def resize_image(self, image, resolution):
+        if isinstance(image, torch.Tensor):
+            assert image.ndim == 4
+            if (image.shape[1] != 3 and image.shape[-1] == 3):
+                image = image.permute(0, 3, 1, 2)
         image = resize(image, size=resolution)
-        return (image,
-        )
+        return (image,)
 
 
 class LoadDistiller:
@@ -87,7 +92,7 @@ class LoadDistiller:
     def INPUT_TYPES(s):
         return {
             'required': {
-                "model": (['stable-diffusion-v1-5'], {"default": "stable-diffusion-v1-5"}),
+                "model": (['stable-diffusion-v1-5', 'stable-diffusion-xl-base-1.0', 'FLUX.1-dev'], {"default": "stable-diffusion-v1-5"}),
                 "precision": (['bf16', 'fp32'], {"default": 'bf16'}),
             },  
         }
@@ -100,36 +105,40 @@ class LoadDistiller:
         device = mm.get_torch_device()
         
         model_name = os.path.join(folder_paths.models_dir, 'diffusers', model)
+        model_class = {
+            "stable-diffusion-v1-5": ADPipeline,
+            "stable-diffusion-xl-base-1.0": ADXLPipeline,
+            "FLUX.1-dev": ADFluxPipeline,
+        }[model]
+
         if not os.path.exists(model_name):
             print(f"Please download target model to : {model_name}")
         
         try:
-            scheduler = DDIMScheduler.from_pretrained(model_name, subfolder='scheduler')
-            distiller = ADPipeline.from_pretrained(
-                model_name, scheduler=scheduler, safety_checker=None, torch_dtype=weight_dtype
-            ).to(device)
+            if model == "FLUX.1-dev":
+                distiller = model_class.from_pretrained(
+                    model_name, safety_checker=None, torch_dtype=weight_dtype
+                ).to(device)
+            else:
+                scheduler = DDIMScheduler.from_pretrained(model_name, subfolder='scheduler')
+                distiller = model_class.from_pretrained(
+                    model_name, scheduler=scheduler, safety_checker=None, torch_dtype=weight_dtype
+                ).to(device)
         except:
             print('Download models...')
                 
             repo_name = {
                 "stable-diffusion-v1-5": "stable-diffusion-v1-5/stable-diffusion-v1-5",
+                "stable-diffusion-xl-base-1.0": "stabilityai/stable-diffusion-xl-base-1.0",
+                "FLUX.1-dev": "black-forest-labs/FLUX.1-dev",
             }[model]
 
-            file_names = [
-                'feature_extractor/preprocessor_config.json', 
-                'scheduler/scheduler_config.json', 
-                'text_encoder/config.json', 
-                'text_encoder/pytorch_model.bin',
-                'tokenizer/merges.txt', 
-                'tokenizer/special_tokens_map.json', 
-                'tokenizer/tokenizer_config.json', 
-                'tokenizer/vocab.json', 
-                'unet/config.json', 
-                'unet/diffusion_pytorch_model.bin', 
-                'vae/config.json', 
-                'vae/diffusion_pytorch_model.bin', 
-                'model_index.json'
-            ]
+            file_names = {
+                "stable-diffusion-v1-5": sd15_file_names,
+                "stable-diffusion-xl-base-1.0": sdxl_file_names,
+                "FLUX.1-dev": flux_file_names,
+            }[model]
+
             pbar = tqdm(file_names)
             for file_name in pbar:
                 pbar.set_description(f'Downloading {file_name}')
@@ -137,12 +146,23 @@ class LoadDistiller:
                     hf_hub_download(repo_id=repo_name, filename=file_name, local_dir=model_name)
                 pbar.update()
 
-            scheduler = DDIMScheduler.from_pretrained(model_name, subfolder='scheduler')
-            distiller = ADPipeline.from_pretrained(
-                model_name, scheduler=scheduler, safety_checker=None, torch_dtype=weight_dtype
-            ).to(device)
 
-        distiller.classifier = distiller.unet
+            if model == "FLUX.1-dev":
+                distiller = model_class.from_pretrained(
+                    model_name, safety_checker=None, torch_dtype=weight_dtype
+                ).to(device)
+            else:
+                scheduler = DDIMScheduler.from_pretrained(model_name, subfolder='scheduler')
+                distiller = model_class.from_pretrained(
+                    model_name, scheduler=scheduler, safety_checker=None, torch_dtype=weight_dtype
+                ).to(device)
+
+        if hasattr(distiller, 'unet'):
+            distiller.classifier = distiller.unet
+        elif hasattr(distiller, 'transformer'):
+            distiller.classifier = distiller.transformer
+        else:
+            raise ValueError("Failed to initialize the classifier.")
 
         return ({"distiller": distiller, "precision": precision, 'weight_dtype': weight_dtype},)
 
@@ -173,11 +193,33 @@ class ADOptimizer:
         precision = distiller['precision']
         attn_distiller = distiller['distiller']
 
-        style = to_tensor(resize(style, (512, 512))).unsqueeze(0)
-        content = to_tensor(content).unsqueeze(0)
+        assert isinstance(attn_distiller, ADPipeline), "Only support SD1.5 for style transfer."
+        assert isinstance(style, Image.Image) and isinstance(content, Image.Image), "Please use the image loader in `AttentionDistillationWrapper->Load PIL Image` for loading image."
 
+        if isinstance(style, torch.Tensor) and style.ndim == 3:
+            style = resize(style.unsqueeze(0), (512, 512))
+        elif isinstance(style, Image.Image):
+            style = to_tensor(resize(style, (512, 512))).unsqueeze(0)
+                
+        if isinstance(content, torch.Tensor) and content.ndim == 3:
+            content = content.unsqueeze(0)
+        elif isinstance(content, Image.Image):
+            content = to_tensor(content).unsqueeze(0)
+        
+        assert isinstance(style, torch.Tensor) and style.ndim == 4
+        assert isinstance(content, torch.Tensor) and content.ndim == 4
+
+        if (style.shape[1] != 3 and style.shape[-1] == 3):
+            style = style.permute(0, 3, 1, 2)
+        if (content.shape[1] != 3 and content.shape[-1] == 3):
+            content = content.permute(0, 3, 1, 2)
+
+        print(content.shape)
         controller = Controller(self_layers=(10, 16))
         set_seed(seed)
+
+        print('style', style.min(), style.max())
+        print('content', content.min(), content.max())
 
         images = attn_distiller.optimize(
             lr=lr,
@@ -210,7 +252,6 @@ class ADSampler:
                 "lr": ("FLOAT", {"default": 0.015, "min": 0.001, "max": 1., "step": 0.001}),
                 "iters": ("INT", {"default": 2, "min": 0, "max": 5, "step": 1}),
                 "cfg": ("FLOAT", {"default": 7.5, "min": 1., "max": 20., "step": 0.01}),
-                "eta": ("FLOAT", {"default": 0., "min": 0., "max": 1., "step": 0.01}),
                 "num_images_per_prompt": ("INT", {"default": 1, "min": 1, "max": 5, "step": 1}),
                 "seed": ("INT", {"default": 2025, "min": 0, "max": 0xffffffffffffffff}),
                 "height": ("INT", {"default": 512, "min": 256, "max": 4096, "step": 8}),
@@ -222,14 +263,35 @@ class ADSampler:
     FUNCTION = "process"
     CATEGORY = "AttentionDistillationWrapper"
     
+    DEFAULT_CONFIGS = {
+        ADPipeline: {'self_layers': (10, 16), 'resolution': (512, 512), 'enable_gradient_checkpoint': False},
+        ADXLPipeline: {'self_layers': (64, 70), 'resolution': (1024, 1024), 'enable_gradient_checkpoint': True},
+        ADFluxPipeline: {'self_layers': (50, 57), 'resolution': (512, 512), 'enable_gradient_checkpoint': True},
+    }
+
     @torch.inference_mode(False)
-    def process(self, distiller, style, positive, negative, steps, lr, iters, cfg, eta, num_images_per_prompt, seed, height, width):
+    def process(self, distiller, style, positive, negative, steps, lr, iters, cfg, num_images_per_prompt, seed, height, width):
         precision = distiller['precision']
         attn_distiller = distiller['distiller']
-        controller = Controller(self_layers=(10, 16))
         
-        style = to_tensor(resize(style, (512, 512))).unsqueeze(0)
+        assert isinstance(style, Image.Image), "Please use the image loader in `AttentionDistillationWrapper->Load PIL Image` for loading image."
 
+        default_config = self.DEFAULT_CONFIGS[type(attn_distiller)]
+        print(default_config)
+
+        controller = Controller(self_layers=default_config['self_layers'])
+        
+        if isinstance(style, torch.Tensor) and style.ndim == 3:
+            style = resize(style.unsqueeze(0), default_config['resolution'])
+        elif isinstance(style, Image.Image):
+            style = to_tensor(resize(style, default_config['resolution'])).unsqueeze(0)
+
+        assert isinstance(style, torch.Tensor) and style.ndim == 4
+
+        if (style.shape[1] != 3 and style.shape[-1] == 3):
+            style = style.permute(0, 3, 1, 2)
+
+        print('style', style.min(), style.max(), style.mean())
         set_seed(seed)
         images = attn_distiller.sample(
             controller=controller,
@@ -245,7 +307,7 @@ class ADSampler:
             guidance_scale=cfg,
             num_inference_steps=steps,
             num_images_per_prompt=num_images_per_prompt,
-            enable_gradient_checkpoint=False
+            enable_gradient_checkpoint=default_config['enable_gradient_checkpoint']
         )
         images = images.permute(0, 2, 3, 1).float()
         return (images,)
