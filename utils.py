@@ -12,15 +12,15 @@ sd15_file_names = [
     'feature_extractor/preprocessor_config.json', 
     'scheduler/scheduler_config.json', 
     'text_encoder/config.json', 
-    'text_encoder/pytorch_model.bin',
+    'text_encoder/model.safetensors',
     'tokenizer/merges.txt', 
     'tokenizer/special_tokens_map.json', 
     'tokenizer/tokenizer_config.json', 
     'tokenizer/vocab.json', 
     'unet/config.json', 
-    'unet/diffusion_pytorch_model.bin', 
+    'unet/diffusion_pytorch_model.safetensors', 
     'vae/config.json', 
-    'vae/diffusion_pytorch_model.bin', 
+    'vae/diffusion_pytorch_model.safetensors', 
     'model_index.json'
 ]
 
